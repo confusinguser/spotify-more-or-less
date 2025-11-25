@@ -1,11 +1,13 @@
 use crate::api::routes;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::sync::{RwLock};
 use tower_http::cors::{Any, CorsLayer};
-use crate::storage::TracksJson;
 
 mod api;
 mod storage;
+mod spotify;
+mod types;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -13,10 +15,12 @@ async fn main() -> std::io::Result<()> {
     let data_path = std::env::var("data_path").unwrap_or_else(|_| "./tracks.json".to_string());
 
     let socket_address: SocketAddr = "0.0.0.0:8000".parse().unwrap();
+    let spotify_client = Arc::new(spotify::SpotifyClient::new(
+        std::env::var("SPOTIFY_CLIENT_ID").unwrap_or_default(),
+        std::env::var("SPOTIFY_CLIENT_SECRET").unwrap_or_default(),
+    ));
     let listener = tokio::net::TcpListener::bind(socket_address).await?;
-    let f = std::fs::File::open(data_path)?;
-    let tracks: TracksJson = serde_json::from_reader(f)?;
-    let storage = Arc::new(storage::Storage { tracks });
+    let storage = Arc::new(RwLock::new(storage::Storage::from_file(data_path)?));
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -31,7 +35,7 @@ async fn main() -> std::io::Result<()> {
 
     let app = axum::Router::new()
         .merge(routes::router())
-        .with_state(storage)
+        .with_state((storage, spotify_client))
         .layer(cors);
 
     println!("Spotify More Less backend starting on {}", socket_address);

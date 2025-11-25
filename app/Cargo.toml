@@ -13,3 +13,6 @@ tower-http = { version = "0.6", features = ["cors"] }
 rand = "0.10.0-rc.0"
 indexmap = "2.12.1"
 serde_json = "1.0.143"
+reqwest = { version = "0.12", features = ["json"] }
+base64 = "0.22"
+axum-macros = "0.5.0"

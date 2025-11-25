@@ -1,13 +1,16 @@
 use crate::storage::Storage;
-use crate::storage::TrackInfo;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use std::sync::Arc;
+use axum_macros::debug_handler;
+use tokio::sync::RwLock;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use crate::spotify::SpotifyClient;
+use crate::types::TrackInfo;
 
-pub(crate) fn router() -> axum::Router<Arc<Storage>> {
+pub(crate) fn router() -> axum::Router<(Arc<RwLock<Storage>>, Arc<SpotifyClient>)> {
     let (app_router, openapi) = OpenApiRouter::new()
         .routes(routes!(get_random_track))
         .split_for_parts();
@@ -17,6 +20,7 @@ pub(crate) fn router() -> axum::Router<Arc<Storage>> {
     )
 }
 
+#[debug_handler]
 #[utoipa::path(
     get,
     path = "/tracks/random",
@@ -25,11 +29,10 @@ pub(crate) fn router() -> axum::Router<Arc<Storage>> {
     )
 )]
 pub async fn get_random_track(
-    State(storage): State<Arc<Storage>>,
+    State((storage, spotify_client)): State<(Arc<RwLock<Storage>>, Arc<SpotifyClient>)>,
 ) -> Result<Json<TrackInfo>, StatusCode> {
-    storage
-        .tracks
-        .random_track()
+    storage.write().await
+        .random_track(&spotify_client).await
         .map(|track| Json(track.clone()))
-        .ok_or(StatusCode::NOT_FOUND)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
