@@ -1,0 +1,11 @@
+services:
+  app:
+    image: ghcr.io/confusinguser/calendar-curator:latest
+    container_name: spotify-more-less
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/:/app/data
+    environment:
+      - DATABASE_PATH=/app/data/calendars.json
+    restart: unless-stopped
