@@ -1,10 +1,10 @@
-use std::collections::HashSet;
 use base64::Engine;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use std::time::{Duration, Instant};
 use scraper::Html;
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 
 /// Spotify API client for fetching track information
 /// Automatically handles OAuth2 authentication using client credentials flow
@@ -87,13 +87,12 @@ impl SpotifyClient {
             )));
         }
 
-        let token_response: TokenResponse = response
-            .json()
-            .await
-            .map_err(SpotifyError::RequestError)?;
+        let token_response: TokenResponse =
+            response.json().await.map_err(SpotifyError::RequestError)?;
 
         // Cache the token (subtract 60 seconds for safety margin)
-        let expires_at = Instant::now() + Duration::from_secs(token_response.expires_in.saturating_sub(60));
+        let expires_at =
+            Instant::now() + Duration::from_secs(token_response.expires_in.saturating_sub(60));
         let access_token = token_response.access_token.clone();
 
         *cache = Some(TokenCache {
@@ -106,10 +105,7 @@ impl SpotifyClient {
 
     /// Fetch track information from Spotify API
     /// Automatically handles authentication
-    pub async fn get_track(
-        &self,
-        track_id: &str,
-    ) -> Result<SpotifyTrackResponse, SpotifyError> {
+    pub async fn get_track(&self, track_id: &str) -> Result<SpotifyTrackResponse, SpotifyError> {
         let access_token = self.get_access_token().await?;
         let url = format!("{}/tracks/{}", self.base_url, track_id);
 
@@ -135,15 +131,13 @@ impl SpotifyClient {
             .await
             .map_err(SpotifyError::RequestError)?;
 
-        let html = self
-            .client
-            .get(&track.external_urls.spotify)
-            .send()
-            .await
-            .map_err(SpotifyError::RequestError)?
-            .text()
-            .await
-            .map_err(SpotifyError::RequestError)?;
+        let Ok(scraping_response) = self.client.get(&track.external_urls.spotify).send().await
+        else {
+            return Ok(track);
+        };
+        let Ok(html) = scraping_response.text().await else {
+            return Ok(track);
+        };
 
         let document = Html::parse_document(&html);
 
@@ -160,7 +154,7 @@ impl SpotifyClient {
         }
 
         let scdn_links: Vec<String> = scdn_links.into_iter().collect();
-        track.preview_url=Some(scdn_links.get(0).cloned().unwrap_or_default());
+        track.preview_url = Some(scdn_links.first().cloned().unwrap_or_default());
         Ok(track)
     }
 }
@@ -239,4 +233,3 @@ pub struct Artist {
 pub struct ExternalUrls {
     pub spotify: String,
 }
-
