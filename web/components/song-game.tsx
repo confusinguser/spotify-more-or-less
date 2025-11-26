@@ -75,6 +75,16 @@ function getRandomAnimation(): AnimationType {
   return animationTypes[Math.floor(Math.random() * animationTypes.length)]
 }
 
+// Prefetch image using link preload that works with Next.js image optimization
+function prefetchImage(url: string) {
+  const link = document.createElement('link')
+  link.rel = 'preload'
+  link.as = 'image'
+  link.href = url
+  link.imageSrcset = `/_next/image?url=${encodeURIComponent(url)}&w=640&q=75 640w, /_next/image?url=${encodeURIComponent(url)}&w=750&q=75 750w`
+  document.head.appendChild(link)
+}
+
 function FloatingElements() {
   return (
     <div className="fixed inset-0 overflow-hidden pointer-events-none">
@@ -172,6 +182,31 @@ export function SongGame() {
       setIsCorrect(correct)
       setGameState("revealing")
 
+      // Fetch new song(s) immediately, before showing streams
+      let newSongPromise: Promise<TrackInfo | null> | null = null
+      let newTwoSongsPromise: Promise<{ data?: { track1: TrackInfo; track2: TrackInfo } | undefined; error?: any }> | null = null
+
+      if (correct || lives > 1) {
+        // Fetch single new track for transition
+        newSongPromise = fetchNewTrack().then((track) => {
+          if (track?.album_image_url) {
+            prefetchImage(track.album_image_url)
+          }
+          return track
+        })
+      } else {
+        // Game over - fetch two new tracks
+        newTwoSongsPromise = fetchClient.GET("/tracks/random/two").then((result) => {
+          if (result.data?.track1.album_image_url) {
+            prefetchImage(result.data.track1.album_image_url)
+          }
+          if (result.data?.track2.album_image_url) {
+            prefetchImage(result.data.track2.album_image_url)
+          }
+          return result
+        })
+      }
+
       if (side === "left") {
         setShowLeftStreams(true)
         setTimeout(() => setShowRightStreams(true), 800)
@@ -192,7 +227,7 @@ export function SongGame() {
           const nextAnimation = getRandomAnimation()
           setCurrentAnimation(nextAnimation)
 
-          const newSong = await fetchNewTrack()
+          const newSong = await newSongPromise
           if (newSong) {
             setTransitioningSong(rightSong)
             setUpcomingSong(newSong)
@@ -216,6 +251,9 @@ export function SongGame() {
         } else {
           // Game over - reset everything
           setGameState("transitioning")
+
+          const twoTracksResult = await newTwoSongsPromise
+
           setTimeout(() => {
             setHighScore((prev) => Math.max(prev, score))
             setScore(0)
@@ -226,16 +264,15 @@ export function SongGame() {
             setShowRightStreams(false)
             setIsTransitioning(false)
             setHasTransitioned(false)
-            // Fetch two new tracks
-            fetchClient.GET("/tracks/random/two").then(({ data, error }) => {
-              if (data) {
-                setLeftSong(data.track1)
-                setRightSong(data.track2)
-                setGameState("playing")
-              } else {
-                console.error("Failed to load tracks: " + error)
-              }
-            })
+
+            // Use already fetched tracks
+            if (twoTracksResult?.data) {
+              setLeftSong(twoTracksResult.data.track1)
+              setRightSong(twoTracksResult.data.track2)
+              setGameState("playing")
+            } else {
+              console.error("Failed to load tracks: " + twoTracksResult?.error)
+            }
           }, 1000)
         }
       }, 3000)
@@ -386,7 +423,7 @@ export function SongGame() {
                   showStreams={showRightStreams}
                   isSelected={selectedSide === "right"}
                   isCorrect={selectedSide === "right" ? isCorrect : null}
-                  isWinner={showRightStreams && rightSong.times_played > leftSong.times_played}
+                  isWinner={showRightStreams && rightSong.times_played >= leftSong.times_played}
                 />
               </motion.div>
             ) : null}
