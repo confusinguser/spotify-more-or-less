@@ -326,7 +326,7 @@ export function SongGame() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-2 text-balance">
-            Which song has more streams?
+            Mostafa&#39;s Musical Machinations
           </h1>
           <div className="flex justify-center gap-8 mt-4">
             <div className="text-muted-foreground">
