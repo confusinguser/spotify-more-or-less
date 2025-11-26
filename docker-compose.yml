@@ -1,7 +1,6 @@
 services:
   app:
-    build: .
-    image: spotify-more-less:latest
+    image: ghcr.io/confusinguser/spotify-more-less:latest
     container_name: spotify-more-less
     ports:
       - "3000:3000"

@@ -71,7 +71,7 @@ export interface components {
             /** Format: int32 */
             popularity: number;
             preview_url?: string | null;
-            spotify_url: string;
+            spotify_url?: string | null;
             time_distribution: number[];
             /** Format: int32 */
             times_played: number;

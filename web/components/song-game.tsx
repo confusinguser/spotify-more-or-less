@@ -3,23 +3,7 @@
 import { useState, useCallback, useEffect } from "react"
 import { SongCard } from "./song-card"
 import { motion } from "framer-motion"
-import { fetchClient } from "@/lib/api"
-import { components } from "@/lib/schema"
-import { Song } from "@/lib/types"
-
-type TrackInfo = components["schemas"]["TrackInfo"]
-
-function trackInfoToSong(track: TrackInfo): Song {
-  return {
-    id: track.spotify_url || Math.random().toString(),
-    title: track.title,
-    artist: track.artist,
-    streams: track.times_played,
-    albumArt: track.album_image_url || "/placeholder-album.jpg",
-    spotify_url: track.spotify_url,
-    preview_url: track.preview_url || undefined,
-  }
-}
+import { fetchClient, TrackInfo } from "@/lib/api"
 
 type AnimationType = "fling" | "flip" | "spiral" | "bounce" | "arc" | "somersault"
 
@@ -92,47 +76,8 @@ function getRandomAnimation(): AnimationType {
 }
 
 function FloatingElements() {
-  const elements = [
-    { size: 60, x: "10%", y: "20%", duration: 20, delay: 0 },
-    { size: 40, x: "85%", y: "15%", duration: 25, delay: 2 },
-    { size: 80, x: "70%", y: "70%", duration: 22, delay: 1 },
-    { size: 30, x: "20%", y: "80%", duration: 18, delay: 3 },
-    { size: 50, x: "50%", y: "10%", duration: 24, delay: 0.5 },
-    { size: 35, x: "90%", y: "50%", duration: 21, delay: 1.5 },
-    { size: 45, x: "5%", y: "50%", duration: 23, delay: 2.5 },
-    { size: 55, x: "40%", y: "85%", duration: 19, delay: 0.8 },
-  ]
-
   return (
     <div className="fixed inset-0 overflow-hidden pointer-events-none">
-      {elements.map((el, i) => (
-        <motion.div
-          key={i}
-          className="absolute rounded-full opacity-10"
-          style={{
-            width: el.size,
-            height: el.size,
-            left: el.x,
-            top: el.y,
-            background:
-              i % 2 === 0
-                ? "linear-gradient(135deg, hsl(var(--primary)) 0%, transparent 100%)"
-                : "linear-gradient(135deg, hsl(var(--accent)) 0%, transparent 100%)",
-          }}
-          animate={{
-            y: [0, -30, 0, 30, 0],
-            x: [0, 20, 0, -20, 0],
-            scale: [1, 1.1, 1, 0.9, 1],
-            rotate: [0, 90, 180, 270, 360],
-          }}
-          transition={{
-            duration: el.duration,
-            delay: el.delay,
-            repeat: Number.POSITIVE_INFINITY,
-            ease: "easeInOut",
-          }}
-        />
-      ))}
       {/* Musical note shapes */}
       {[
         { x: "15%", y: "35%", size: 20, duration: 15 },
@@ -146,7 +91,7 @@ function FloatingElements() {
           style={{ left: note.x, top: note.y, fontSize: note.size }}
           animate={{
             y: [0, -40, 0],
-            opacity: [0.1, 0.2, 0.1],
+            opacity: [1.0, 0.2, 1.0],
             rotate: [0, 10, -10, 0],
           }}
           transition={{
@@ -163,8 +108,8 @@ function FloatingElements() {
 }
 
 export function SongGame() {
-  const [leftSong, setLeftSong] = useState<Song | null>(null)
-  const [rightSong, setRightSong] = useState<Song | null>(null)
+  const [leftSong, setLeftSong] = useState<TrackInfo | null>(null)
+  const [rightSong, setRightSong] = useState<TrackInfo | null>(null)
   const [gameState, setGameState] = useState<"playing" | "revealing" | "transitioning" | "loading">("loading")
   const [selectedSide, setSelectedSide] = useState<"left" | "right" | null>(null)
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
@@ -175,8 +120,8 @@ export function SongGame() {
   const [showRightStreams, setShowRightStreams] = useState(false)
   const [currentAnimation, setCurrentAnimation] = useState<AnimationType>("fling")
   const [isTransitioning, setIsTransitioning] = useState(false)
-  const [transitioningSong, setTransitioningSong] = useState<Song | null>(null)
-  const [upcomingSong, setUpcomingSong] = useState<Song | null>(null)
+  const [transitioningSong, setTransitioningSong] = useState<TrackInfo | null>(null)
+  const [upcomingSong, setUpcomingSong] = useState<TrackInfo | null>(null)
   const [hasTransitioned, setHasTransitioned] = useState(false)
 
   // Fetch two random tracks on mount
@@ -185,10 +130,8 @@ export function SongGame() {
       try {
         const { data, error } = await fetchClient.GET("/tracks/random/two")
         if (data) {
-          const song1 = trackInfoToSong(data.track1)
-          const song2 = trackInfoToSong(data.track2)
-          setLeftSong(song1)
-          setRightSong(song2)
+          setLeftSong(data.track1)
+          setRightSong(data.track2)
           setGameState("playing")
         } else {
           console.error("Failed to load tracks: " + error)
@@ -202,11 +145,11 @@ export function SongGame() {
   }, [])
 
   // Function to fetch a new random track
-  const fetchNewTrack = async (): Promise<Song | null> => {
+  const fetchNewTrack = async (): Promise<TrackInfo | null> => {
     try {
       const { data } = await fetchClient.GET("/tracks/random")
       if (data) {
-        return trackInfoToSong(data)
+        return data
       } else {
         console.error("Failed to fetch new track")
         return null
@@ -224,7 +167,7 @@ export function SongGame() {
       setSelectedSide(side)
       const selectedSong = side === "left" ? leftSong : rightSong
       const otherSong = side === "left" ? rightSong : leftSong
-      const correct = selectedSong.streams >= otherSong.streams
+      const correct = selectedSong.times_played >= otherSong.times_played
 
       setIsCorrect(correct)
       setGameState("revealing")
@@ -238,7 +181,7 @@ export function SongGame() {
       }
 
       setTimeout(async () => {
-        if (correct || lives > 0) {
+        if (correct || lives > 1) {
           if (!correct) {
             setLives(prev => prev - 1)
           } else {
@@ -286,10 +229,8 @@ export function SongGame() {
             // Fetch two new tracks
             fetchClient.GET("/tracks/random/two").then(({ data, error }) => {
               if (data) {
-                const song1 = trackInfoToSong(data.track1)
-                const song2 = trackInfoToSong(data.track2)
-                setLeftSong(song1)
-                setRightSong(song2)
+                setLeftSong(data.track1)
+                setRightSong(data.track2)
                 setGameState("playing")
               } else {
                 console.error("Failed to load tracks: " + error)
@@ -320,7 +261,7 @@ export function SongGame() {
 
   return (
     <>
-      {/*<FloatingElements/>*/}
+      <FloatingElements/>
 
       <div className="w-full max-w-5xl relative z-10">
         {/* Header */}
@@ -335,7 +276,8 @@ export function SongGame() {
             <div className="text-muted-foreground">
               High Score: <span className="text-accent font-bold text-xl">{highScore}</span>
             </div>
-            <div className="flex items-center gap-1">
+            {/* The key is needed to force rerender when the game restarts*/}
+            <div className="flex items-center gap-1" key={lives===3 ? "l": "k"}>
               {[...Array(3)].map((_, i) => (
                 <motion.span
                   key={i}
@@ -363,7 +305,7 @@ export function SongGame() {
           <div className="relative" style={{ width: 288 }}>
             {!isTransitioning && (
               <motion.div
-                key={`left-${leftSong.id}-${hasTransitioned}`}
+                key={`left-${leftSong.spotify_url}-${leftSong.title}-${hasTransitioned}`}
                 initial={hasTransitioned ? false : { opacity: 0, x: -50 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.4 }}
@@ -375,7 +317,7 @@ export function SongGame() {
                   showStreams={showLeftStreams}
                   isSelected={selectedSide === "left"}
                   isCorrect={selectedSide === "left" ? isCorrect : null}
-                  isWinner={showLeftStreams && leftSong.streams >= rightSong.streams}
+                  isWinner={showLeftStreams && leftSong.times_played >= rightSong.times_played}
                 />
               </motion.div>
             )}
@@ -432,7 +374,7 @@ export function SongGame() {
               </motion.div>
             ) : !isTransitioning ? (
               <motion.div
-                key={`right-${rightSong.id}-${hasTransitioned}`}
+                key={`left-${rightSong.spotify_url}-${rightSong.title}-${hasTransitioned}`}
                 initial={hasTransitioned ? false : { opacity: 0, x: 50 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.4 }}
@@ -444,7 +386,7 @@ export function SongGame() {
                   showStreams={showRightStreams}
                   isSelected={selectedSide === "right"}
                   isCorrect={selectedSide === "right" ? isCorrect : null}
-                  isWinner={showRightStreams && rightSong.streams > leftSong.streams}
+                  isWinner={showRightStreams && rightSong.times_played > leftSong.times_played}
                 />
               </motion.div>
             ) : null}

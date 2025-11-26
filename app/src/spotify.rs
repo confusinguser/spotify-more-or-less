@@ -1,8 +1,10 @@
+use std::collections::HashSet;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::time::{Duration, Instant};
+use scraper::Html;
 
 /// Spotify API client for fetching track information
 /// Automatically handles OAuth2 authentication using client credentials flow
@@ -111,7 +113,7 @@ impl SpotifyClient {
         let access_token = self.get_access_token().await?;
         let url = format!("{}/tracks/{}", self.base_url, track_id);
 
-        let response = self
+        let resp = self
             .client
             .get(&url)
             .header("Authorization", format!("Bearer {}", access_token))
@@ -119,20 +121,46 @@ impl SpotifyClient {
             .await
             .map_err(SpotifyError::RequestError)?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let error_text = resp.text().await.unwrap_or_default();
             return Err(SpotifyError::ApiError(format!(
                 "Failed to fetch track: {} - {}",
                 status, error_text
             )));
         }
 
-        let track = response
+        let mut track = resp
             .json::<SpotifyTrackResponse>()
             .await
             .map_err(SpotifyError::RequestError)?;
 
+        let html = self
+            .client
+            .get(&track.external_urls.spotify)
+            .send()
+            .await
+            .map_err(SpotifyError::RequestError)?
+            .text()
+            .await
+            .map_err(SpotifyError::RequestError)?;
+
+        let document = Html::parse_document(&html);
+
+        let mut scdn_links = HashSet::new();
+
+        for node in document.tree.nodes() {
+            if let Some(elem) = node.value().as_element() {
+                for (_k, v) in elem.attrs.iter() {
+                    if v.contains("p.scdn.co") {
+                        scdn_links.insert(v.to_string());
+                    }
+                }
+            }
+        }
+
+        let scdn_links: Vec<String> = scdn_links.into_iter().collect();
+        track.preview_url=Some(scdn_links.get(0).cloned().unwrap_or_default());
         Ok(track)
     }
 }

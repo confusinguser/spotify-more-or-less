@@ -1,3 +1,4 @@
 app/target
 node_modules
 .env
+data

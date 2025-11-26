@@ -1,12 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import Image from "next/image"
-import { Song } from "@/lib/types"
+import { TrackInfo } from "@/lib/api";
 
 interface SongCardProps {
-  song: Song
+  song: TrackInfo
   onClick: () => void
   disabled: boolean
   showStreams: boolean
@@ -24,7 +24,7 @@ function AnimatedCounter({ target, duration = 1500 }: { target: number; duration
       const elapsed = Date.now() - startTime
       const progress = Math.min(elapsed / duration, 1)
       // Easing function for smooth deceleration
-      const eased = 1 - Math.pow(1 - progress, 3)
+      const eased = 1 - Math.pow(1 - progress, 2)
       setCount(Math.floor(target * eased))
 
       if (progress < 1) {
@@ -38,6 +38,66 @@ function AnimatedCounter({ target, duration = 1500 }: { target: number; duration
 }
 
 export function SongCard({ song, onClick, disabled, showStreams, isSelected, isCorrect, isWinner }: SongCardProps) {
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+
+  // Initialize audio element
+  useEffect(() => {
+    if (song.preview_url) {
+      audioRef.current = new Audio(song.preview_url)
+      audioRef.current.volume = 0.3 // Set volume to 30%
+
+      const handleEnded = () => setIsPlaying(false)
+      audioRef.current.addEventListener('ended', handleEnded)
+
+      return () => {
+        if (audioRef.current) {
+          audioRef.current.removeEventListener('ended', handleEnded)
+          audioRef.current.pause()
+          audioRef.current = null
+        }
+      }
+    }
+  }, [song.preview_url])
+
+  // Cleanup on unmount or when song changes
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current)
+      }
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current.currentTime = 0
+      }
+    }
+  }, [song.spotify_url])
+
+  const handleMouseEnter = () => {
+    if (!song.preview_url || disabled) return
+
+    hoverTimeoutRef.current = setTimeout(() => {
+      if (audioRef.current) {
+        audioRef.current.play().then(() => {
+          setIsPlaying(true)
+        }).catch(err => {
+          console.error('Error playing audio:', err)
+        })
+      }
+    }, 500) // 500ms delay
+  }
+
+  const handleMouseLeave = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current)
+    }
+    if (audioRef.current && isPlaying) {
+      audioRef.current.pause()
+      setIsPlaying(false)
+    }
+  }
+
   const getBorderColor = () => {
     if (!showStreams) return "border-border"
     if (isWinner) return "border-primary"
@@ -54,6 +114,8 @@ export function SongCard({ song, onClick, disabled, showStreams, isSelected, isC
     <motion.button
       onClick={onClick}
       disabled={disabled}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       whileHover={disabled ? {} : { scale: 1.02 }}
       whileTap={disabled ? {} : { scale: 0.98 }}
       className={`
@@ -65,7 +127,7 @@ export function SongCard({ song, onClick, disabled, showStreams, isSelected, isC
       {/* Album Art */}
       <div className="relative aspect-square overflow-hidden">
         <Image
-          src={song.albumArt || "/placeholder.svg"}
+          src={song.album_image_url || "/placeholder.svg"}
           alt={`${song.title} album art`}
           fill
           className="object-cover"
@@ -135,7 +197,7 @@ export function SongCard({ song, onClick, disabled, showStreams, isSelected, isC
             >
               <p className="text-xs uppercase tracking-wider mb-1 opacity-80">Streams</p>
               <p className="text-xl font-bold">
-                <AnimatedCounter target={song.streams} />
+                <AnimatedCounter target={song.times_played} />
               </p>
             </motion.div>
           </motion.div>

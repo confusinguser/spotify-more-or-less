@@ -20,7 +20,20 @@ async fn main() -> std::io::Result<()> {
     let data_source = DataSourceConfig::from_env();
     
     println!("Loading data from: {:?}", data_source);
-    
+
+    let client_id = std::env::var("SPOTIFY_CLIENT_ID").unwrap_or_default();
+    if client_id.is_empty() {
+        eprintln!("Warning: SPOTIFY_CLIENT_ID is not set. Spotify API requests may fail.");
+    }
+    let client_secret = std::env::var("SPOTIFY_CLIENT_SECRET").unwrap_or_default();
+    if client_secret.is_empty() {
+        eprintln!("Warning: SPOTIFY_CLIENT_SECRET is not set. Spotify API requests may fail.");
+    }
+    let spotify_client = Arc::new(spotify::SpotifyClient::new(
+        client_id,
+        client_secret,
+    ));
+
     let storage = data_source.load_storage(10)
         .unwrap_or_else(|e| {
             eprintln!("Failed to load data: {}. Using empty data instead.", e);
@@ -29,10 +42,6 @@ async fn main() -> std::io::Result<()> {
     let storage = Arc::new(RwLock::new(storage));
 
     let socket_address: SocketAddr = "0.0.0.0:8000".parse().unwrap();
-    let spotify_client = Arc::new(spotify::SpotifyClient::new(
-        std::env::var("SPOTIFY_CLIENT_ID").unwrap_or_default(),
-        std::env::var("SPOTIFY_CLIENT_SECRET").unwrap_or_default(),
-    ));
     let listener = tokio::net::TcpListener::bind(socket_address).await?;
 
     let cors = CorsLayer::new()
