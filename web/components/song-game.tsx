@@ -1,107 +1,24 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { SongCard } from "./song-card"
 import { motion } from "framer-motion"
+import { fetchClient } from "@/lib/api"
+import { components } from "@/lib/schema"
+import { Song } from "@/lib/types"
 
-interface Song {
-  id: number
-  title: string
-  artist: string
-  streams: number
-  albumArt: string
-}
+type TrackInfo = components["schemas"]["TrackInfo"]
 
-const allSongs: Song[] = [
-  {
-    id: 1,
-    title: "Blinding Lights",
-    artist: "The Weeknd",
-    streams: 4200000000,
-    albumArt: "/neon-city-lights-album-cover.jpg",
-  },
-  {
-    id: 2,
-    title: "Shape of You",
-    artist: "Ed Sheeran",
-    streams: 3800000000,
-    albumArt: "/orange-geometric-shapes-album-cover.jpg",
-  },
-  {
-    id: 3,
-    title: "Dance Monkey",
-    artist: "Tones and I",
-    streams: 2900000000,
-    albumArt: "/colorful-monkey-illustration-album.jpg",
-  },
-  {
-    id: 4,
-    title: "Rockstar",
-    artist: "Post Malone",
-    streams: 2700000000,
-    albumArt: "/dark-rock-star-aesthetic-album.jpg",
-  },
-  {
-    id: 5,
-    title: "One Dance",
-    artist: "Drake",
-    streams: 2500000000,
-    albumArt: "/tropical-sunset-vibes-album-cover.jpg",
-  },
-  {
-    id: 6,
-    title: "Sunflower",
-    artist: "Post Malone",
-    streams: 2400000000,
-    albumArt: "/yellow-sunflower-artistic-album.jpg",
-  },
-  {
-    id: 7,
-    title: "Closer",
-    artist: "The Chainsmokers",
-    streams: 2300000000,
-    albumArt: "/electronic-blue-waves-album.jpg",
-  },
-  {
-    id: 8,
-    title: "Starboy",
-    artist: "The Weeknd",
-    streams: 2200000000,
-    albumArt: "/futuristic-star-neon-album-cover.jpg",
-  },
-  {
-    id: 9,
-    title: "Perfect",
-    artist: "Ed Sheeran",
-    streams: 2100000000,
-    albumArt: "/romantic-soft-pink-album-cover.jpg",
-  },
-  {
-    id: 10,
-    title: "Heat Waves",
-    artist: "Glass Animals",
-    streams: 2000000000,
-    albumArt: "/psychedelic-heat-waves-album.jpg",
-  },
-  {
-    id: 11,
-    title: "Bad Guy",
-    artist: "Billie Eilish",
-    streams: 1900000000,
-    albumArt: "/edgy-green-black-album-cover.jpg",
-  },
-  {
-    id: 12,
-    title: "Lucid Dreams",
-    artist: "Juice WRLD",
-    streams: 1800000000,
-    albumArt: "/dreamy-purple-clouds-album.jpg",
-  },
-]
-
-function getRandomSong(exclude: number[]): Song {
-  const available = allSongs.filter((s) => !exclude.includes(s.id))
-  return available[Math.floor(Math.random() * available.length)]
+function trackInfoToSong(track: TrackInfo): Song {
+  return {
+    id: track.spotify_url || Math.random().toString(),
+    title: track.title,
+    artist: track.artist,
+    streams: track.times_played,
+    albumArt: track.album_image_url || "/placeholder-album.jpg",
+    spotify_url: track.spotify_url,
+    preview_url: track.preview_url || undefined,
+  }
 }
 
 type AnimationType = "fling" | "flip" | "spiral" | "bounce" | "arc" | "somersault"
@@ -246,25 +163,61 @@ function FloatingElements() {
 }
 
 export function SongGame() {
-  const [leftSong, setLeftSong] = useState<Song>(allSongs[0])
-  const [rightSong, setRightSong] = useState<Song>(allSongs[1])
-  const [gameState, setGameState] = useState<"playing" | "revealing" | "transitioning">("playing")
+  const [leftSong, setLeftSong] = useState<Song | null>(null)
+  const [rightSong, setRightSong] = useState<Song | null>(null)
+  const [gameState, setGameState] = useState<"playing" | "revealing" | "transitioning" | "loading">("loading")
   const [selectedSide, setSelectedSide] = useState<"left" | "right" | null>(null)
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
   const [score, setScore] = useState(0)
   const [highScore, setHighScore] = useState(0)
   const [showLeftStreams, setShowLeftStreams] = useState(false)
   const [showRightStreams, setShowRightStreams] = useState(false)
-  const [usedSongIds, setUsedSongIds] = useState<number[]>([allSongs[0].id, allSongs[1].id])
   const [currentAnimation, setCurrentAnimation] = useState<AnimationType>("fling")
   const [isTransitioning, setIsTransitioning] = useState(false)
   const [transitioningSong, setTransitioningSong] = useState<Song | null>(null)
   const [upcomingSong, setUpcomingSong] = useState<Song | null>(null)
   const [hasTransitioned, setHasTransitioned] = useState(false)
 
+  // Fetch two random tracks on mount
+  useEffect(() => {
+    async function loadInitialTracks() {
+      try {
+        const { data, error } = await fetchClient.GET("/tracks/random/two")
+        if (data) {
+          const song1 = trackInfoToSong(data.track1)
+          const song2 = trackInfoToSong(data.track2)
+          setLeftSong(song1)
+          setRightSong(song2)
+          setGameState("playing")
+        } else {
+          console.error("Failed to load tracks: " + error)
+        }
+      } catch (err) {
+        console.error("Error loading initial tracks:", err)
+      }
+    }
+    loadInitialTracks()
+  }, [])
+
+  // Function to fetch a new random track
+  const fetchNewTrack = async (): Promise<Song | null> => {
+    try {
+      const { data } = await fetchClient.GET("/tracks/random")
+      if (data) {
+        return trackInfoToSong(data)
+      } else {
+        console.error("Failed to fetch new track")
+        return null
+      }
+    } catch (err) {
+      console.error("Error fetching new track:", err)
+      return null
+    }
+  }
+
   const handleSelect = useCallback(
-    (side: "left" | "right") => {
-      if (gameState !== "playing") return
+    async (side: "left" | "right") => {
+      if (gameState !== "playing" || !leftSong || !rightSong) return
 
       setSelectedSide(side)
       const selectedSong = side === "left" ? leftSong : rightSong
@@ -282,7 +235,7 @@ export function SongGame() {
         setTimeout(() => setShowLeftStreams(true), 800)
       }
 
-      setTimeout(() => {
+      setTimeout(async () => {
         if (correct) {
           setScore((prev) => prev + 1)
           setGameState("transitioning")
@@ -290,49 +243,73 @@ export function SongGame() {
           const nextAnimation = getRandomAnimation()
           setCurrentAnimation(nextAnimation)
 
-          const newSong = getRandomSong([...usedSongIds])
-          setUsedSongIds((prev) => [...prev, newSong.id])
-          setTransitioningSong(rightSong)
-          setUpcomingSong(newSong)
-          setIsTransitioning(true)
+          const newSong = await fetchNewTrack()
+          if (newSong) {
+            setTransitioningSong(rightSong)
+            setUpcomingSong(newSong)
+            setIsTransitioning(true)
 
-          const animDuration = (dramaticAnimations[nextAnimation].transition as { duration: number }).duration * 1000
-          setTimeout(() => {
-            setLeftSong(rightSong)
-            setRightSong(newSong)
-            setTransitioningSong(null)
-            setUpcomingSong(null)
-            setShowLeftStreams(false)
-            setShowRightStreams(false)
-            setSelectedSide(null)
-            setIsCorrect(null)
-            setIsTransitioning(false)
-            setHasTransitioned(true)
-            setGameState("playing")
-          }, animDuration + 100)
+            const animDuration = (dramaticAnimations[nextAnimation].transition as { duration: number }).duration * 1000
+            setTimeout(() => {
+              setLeftSong(rightSong)
+              setRightSong(newSong)
+              setTransitioningSong(null)
+              setUpcomingSong(null)
+              setShowLeftStreams(false)
+              setShowRightStreams(false)
+              setSelectedSide(null)
+              setIsCorrect(null)
+              setIsTransitioning(false)
+              setHasTransitioned(true)
+              setGameState("playing")
+            }, animDuration + 100)
+          }
         } else {
-          setTimeout(() => {
+          setTimeout(async () => {
             setHighScore((prev) => Math.max(prev, score))
             setScore(0)
-            const song1 = getRandomSong([])
-            const song2 = getRandomSong([song1.id])
-            setUsedSongIds([song1.id, song2.id])
-            setLeftSong(song1)
-            setRightSong(song2)
-            setShowLeftStreams(false)
-            setShowRightStreams(false)
-            setSelectedSide(null)
-            setIsCorrect(null)
-            setHasTransitioned(false)
-            setGameState("playing")
+            setGameState("loading")
+
+            // Fetch two new random tracks
+            try {
+              const { data } = await fetchClient.GET("/tracks/random/two")
+              if (data) {
+                const song1 = trackInfoToSong(data.track1)
+                const song2 = trackInfoToSong(data.track2)
+                setLeftSong(song1)
+                setRightSong(song2)
+                setShowLeftStreams(false)
+                setShowRightStreams(false)
+                setSelectedSide(null)
+                setIsCorrect(null)
+                setHasTransitioned(false)
+                setGameState("playing")
+              }
+            } catch (err) {
+              console.error("Error resetting game:", err)
+            }
           }, 1000)
         }
       }, 3000)
     },
-    [gameState, leftSong, rightSong, score, usedSongIds],
+    [gameState, leftSong, rightSong, score],
   )
 
   const transitionAnimation = dramaticAnimations[currentAnimation]
+
+  if (gameState === "loading" || !leftSong || !rightSong) {
+    return (
+      <>
+        <FloatingElements />
+        <div className="w-full max-w-5xl relative z-10 flex items-center justify-center min-h-[500px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading tracks...</p>
+          </div>
+        </div>
+      </>
+    )
+  }
 
   return (
     <>

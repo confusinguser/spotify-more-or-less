@@ -13,6 +13,9 @@ pub struct Storage {
 }
 
 impl Storage {
+}
+
+impl Storage {
     pub(crate) fn from_file<P: AsRef<Path>>(data_path: P) -> io::Result<Self> {
         let f = std::fs::File::open(data_path)?;
         let tracks: TracksJson = serde_json::from_reader(f)?;
@@ -20,6 +23,53 @@ impl Storage {
             tracks,
             next_random: RwLock::new(None),
         })
+    }
+
+    pub fn empty() -> Self {
+        Storage {
+            tracks: TracksJson {
+                map: IndexMap::new(),
+            },
+            next_random: RwLock::new(None),
+        }
+    }
+
+    pub(crate) fn sample_data() -> Self {
+        let mut map = IndexMap::new();
+        map.insert(
+            "3n3Ppam7vgaVa1iaRUc9Lp".to_string(),
+            PersonalTrackInfo {
+                id: "3n3Ppam7vgaVa1iaRUc9Lp".to_string(),
+                artist: "Red Hot Chili Peppers".to_string(),
+                artist_id: "0L8ExT028jH3ddEcZwqJJ5".to_string(),
+                title: "Californication".to_string(),
+                ms_duration: 329000,
+                times_played: 42,
+                ms_played: 12345000,
+                time_distribution: vec![0; 24],
+                popularity: 85,
+            },
+        );
+        map.insert(
+            "4GZ3YCkuH0VvTluVLwUp4g".to_string(),
+            PersonalTrackInfo {
+                id: "4GZ3YCkuH0VvTluVLwUp4g".to_string(),
+                artist: "I just wanna shine".to_string(),
+                artist_id: "0L8ExT028jH3ddEcZwqJJ5".to_string(),
+                title: "Californication".to_string(),
+                ms_duration: 329000,
+                times_played: 42,
+                ms_played: 12345000,
+                time_distribution: vec![0; 24],
+                popularity: 85,
+            },
+        );
+
+        Storage {
+            tracks: TracksJson { map },
+            next_random: RwLock::new(None),
+        }
+
     }
 
     pub async fn random_track(&mut self, spotify_client: &SpotifyClient) -> Result<TrackInfo, SpotifyError> {

@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{RwLock};
 use tower_http::cors::{Any, CorsLayer};
+use crate::storage::Storage;
 
 mod api;
 mod storage;
@@ -12,7 +13,7 @@ mod types;
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Get database path from environment variable or use default
-    let data_path = std::env::var("data_path").unwrap_or_else(|_| "./tracks.json".to_string());
+    let data_path = std::env::var("data_path").unwrap_or_else(|_| "./data/tracks.json".to_string());
 
     let socket_address: SocketAddr = "0.0.0.0:8000".parse().unwrap();
     let spotify_client = Arc::new(spotify::SpotifyClient::new(
@@ -20,7 +21,8 @@ async fn main() -> std::io::Result<()> {
         std::env::var("SPOTIFY_CLIENT_SECRET").unwrap_or_default(),
     ));
     let listener = tokio::net::TcpListener::bind(socket_address).await?;
-    let storage = Arc::new(RwLock::new(storage::Storage::from_file(data_path)?));
+    // let storage = Arc::new(RwLock::new(Storage::from_file(data_path).unwrap_or(Storage::empty())));
+    let storage = Arc::new(RwLock::new(Storage::sample_data()));
 
     let cors = CorsLayer::new()
         .allow_origin(Any)

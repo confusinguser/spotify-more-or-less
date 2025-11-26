@@ -3,14 +3,7 @@
 import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import Image from "next/image"
-
-interface Song {
-  id: number
-  title: string
-  artist: string
-  streams: number
-  albumArt: string
-}
+import { Song } from "@/lib/types"
 
 interface SongCardProps {
   song: Song
