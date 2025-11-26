@@ -5,6 +5,7 @@ use rand::random_range;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub struct Storage {
@@ -13,16 +14,28 @@ pub struct Storage {
 }
 
 impl Storage {
-}
-
-impl Storage {
-    pub(crate) fn from_file<P: AsRef<Path>>(data_path: P) -> io::Result<Self> {
+    pub fn from_file<P: AsRef<Path>>(data_path: P, min_streams: u32) -> io::Result<Self> {
         let f = std::fs::File::open(data_path)?;
         let tracks: TracksJson = serde_json::from_reader(f)?;
+        let tracks = TracksJson::from_map(
+            tracks
+                .map
+                .into_iter()
+                .filter(|(_, track)| track.times_played >= min_streams)
+                .collect(),
+        );
         Ok(Storage {
             tracks,
             next_random: RwLock::new(None),
         })
+    }
+
+    /// Create Storage from a TracksJson object
+    pub fn from_tracks_json(tracks: TracksJson) -> Self {
+        Storage {
+            tracks,
+            next_random: RwLock::new(None),
+        }
     }
 
     pub fn empty() -> Self {
@@ -34,45 +47,7 @@ impl Storage {
         }
     }
 
-    pub(crate) fn sample_data() -> Self {
-        let mut map = IndexMap::new();
-        map.insert(
-            "3n3Ppam7vgaVa1iaRUc9Lp".to_string(),
-            PersonalTrackInfo {
-                id: "3n3Ppam7vgaVa1iaRUc9Lp".to_string(),
-                artist: "Red Hot Chili Peppers".to_string(),
-                artist_id: "0L8ExT028jH3ddEcZwqJJ5".to_string(),
-                title: "Californication".to_string(),
-                ms_duration: 329000,
-                times_played: 42,
-                ms_played: 12345000,
-                time_distribution: vec![0; 24],
-                popularity: 85,
-            },
-        );
-        map.insert(
-            "4GZ3YCkuH0VvTluVLwUp4g".to_string(),
-            PersonalTrackInfo {
-                id: "4GZ3YCkuH0VvTluVLwUp4g".to_string(),
-                artist: "I just wanna shine".to_string(),
-                artist_id: "0L8ExT028jH3ddEcZwqJJ5".to_string(),
-                title: "Californication".to_string(),
-                ms_duration: 329000,
-                times_played: 42,
-                ms_played: 12345000,
-                time_distribution: vec![0; 24],
-                popularity: 85,
-            },
-        );
-
-        Storage {
-            tracks: TracksJson { map },
-            next_random: RwLock::new(None),
-        }
-
-    }
-
-    pub async fn random_track(&mut self, spotify_client: &SpotifyClient) -> Result<TrackInfo, SpotifyError> {
+    pub async fn random_track(&mut self, spotify_client: Arc<SpotifyClient>) -> Result<TrackInfo, SpotifyError> {
         if let Some(track) = self.next_random.write().await.take() {
             return Ok(track);
         }
@@ -80,7 +55,7 @@ impl Storage {
         Ok(self.next_random.write().await.take().unwrap())
     }
 
-    pub async fn gen_next_random(&mut self, spotify_client: &SpotifyClient) -> Result<(), SpotifyError> {
+    pub async fn gen_next_random(&mut self, spotify_client: Arc<SpotifyClient>) -> Result<(), SpotifyError> {
         if self.next_random.read().await.is_some() {
             return Ok(());
         }
@@ -129,5 +104,18 @@ pub struct PersonalTrackInfo {
 #[derive(Deserialize, Serialize)]
 pub struct TracksJson {
     #[serde(flatten)]
-    map: IndexMap<String, PersonalTrackInfo>,
+    pub(crate) map: IndexMap<String, PersonalTrackInfo>,
 }
+
+impl TracksJson {
+    /// Create a TracksJson from an IndexMap
+    pub fn from_map(map: IndexMap<String, PersonalTrackInfo>) -> Self {
+        TracksJson { map }
+    }
+
+    /// Get a reference to the internal map
+    pub fn map(&self) -> &IndexMap<String, PersonalTrackInfo> {
+        &self.map
+    }
+}
+

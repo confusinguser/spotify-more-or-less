@@ -6,7 +6,7 @@ RUN corepack enable
 WORKDIR /app/frontend
 
 # Copy package files and install dependencies
-COPY web/package.json web/pnpm-lock.json* ./
+COPY web/package.json web/pnpm-lock.yaml* ./
 RUN pnpm i
 
 # Copy frontend source and build
@@ -34,8 +34,8 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 # Build dependencies (this layer will be cached)
 RUN cargo build --release
 
-# Remove the dummy artifacts and source - this is crucial!
-RUN rm -rf src target/release/deps/Calendar_Curator* target/release/Calendar-Curator*
+# Remove the dummy artifacts and source
+RUN rm -rf src target/release/deps/Spotify_More_Less* target/release/Spotify-More-Less*
 
 # Copy the actual source code
 COPY app/src ./src
@@ -53,28 +53,29 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js for serving the frontend
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs
 
 WORKDIR /app
 
 # Copy the Rust backend binary
-COPY --from=backend-builder /app/target/release/Calendar-Curator /app/calendar-curator
+COPY --from=backend-builder /app/target/release/Spotify-More-Less /app/spotify-more-less
 
 # Copy the built frontend
 COPY --from=frontend-builder /app/frontend/.next/standalone ./frontend/
 COPY --from=frontend-builder /app/frontend/.next/static ./frontend/.next/static
 COPY --from=frontend-builder /app/frontend/public ./frontend/public
 COPY ./start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
 # Create data directory for persistent storage
 RUN mkdir -p /app/data
 
 # Set environment variables
-ENV DATABASE_PATH=/app/data/calendars.json
+ENV DATA_DIR=/app/data
 ENV NODE_ENV=production
 
-# Expose both ports
-EXPOSE 3000
+# Expose both ports (backend 8000, frontend 3000)
+EXPOSE 3000 8000
 
 CMD ["/app/start.sh"]

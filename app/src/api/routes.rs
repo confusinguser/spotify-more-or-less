@@ -33,10 +33,15 @@ pub(crate) fn router() -> axum::Router<(Arc<RwLock<Storage>>, Arc<SpotifyClient>
 pub async fn get_random_track(
     State((storage, spotify_client)): State<(Arc<RwLock<Storage>>, Arc<SpotifyClient>)>,
 ) -> Result<Json<TrackInfo>, StatusCode> {
-    storage.write().await
-        .random_track(&spotify_client).await
+    let out = storage.write().await
+        .random_track(spotify_client.clone()).await
         .map(|track| Json(track.clone()))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    tokio::spawn(async move {
+        storage.write().await.gen_next_random(spotify_client).await.ok();
+    });
+
+    out
 }
 
 #[debug_handler]
@@ -51,12 +56,16 @@ pub async fn get_two_random_tracks(
     State((storage, spotify_client)): State<(Arc<RwLock<Storage>>, Arc<SpotifyClient>)>,
 ) -> Result<Json<TwoTracksResponse>, (StatusCode, String)> {
     let track1 = storage.write().await
-        .random_track(&spotify_client).await
+        .random_track(spotify_client.clone()).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let track2 = storage.write().await
-        .random_track(&spotify_client).await
+        .random_track(spotify_client.clone()).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    tokio::spawn(async move {
+        storage.write().await.gen_next_random(spotify_client).await.ok();
+    });
 
     Ok(Json(TwoTracksResponse {
         track1,

@@ -4,16 +4,29 @@ use std::sync::Arc;
 use tokio::sync::{RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use crate::storage::Storage;
+use crate::config::DataSourceConfig;
 
 mod api;
+mod config;
+mod extended_history;
 mod storage;
 mod spotify;
 mod types;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    // Get database path from environment variable or use default
-    let data_path = std::env::var("data_path").unwrap_or_else(|_| "./data/tracks.json".to_string());
+    // Load storage based on configuration from environment variables
+    // Priority: EXTENDED_HISTORY_PATHS > EXTENDED_HISTORY_PATH > DATA_PATH > default
+    let data_source = DataSourceConfig::from_env();
+    
+    println!("Loading data from: {:?}", data_source);
+    
+    let storage = data_source.load_storage(10)
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to load data: {}. Using empty data instead.", e);
+            Storage::empty()
+        });
+    let storage = Arc::new(RwLock::new(storage));
 
     let socket_address: SocketAddr = "0.0.0.0:8000".parse().unwrap();
     let spotify_client = Arc::new(spotify::SpotifyClient::new(
@@ -21,8 +34,6 @@ async fn main() -> std::io::Result<()> {
         std::env::var("SPOTIFY_CLIENT_SECRET").unwrap_or_default(),
     ));
     let listener = tokio::net::TcpListener::bind(socket_address).await?;
-    // let storage = Arc::new(RwLock::new(Storage::from_file(data_path).unwrap_or(Storage::empty())));
-    let storage = Arc::new(RwLock::new(Storage::sample_data()));
 
     let cors = CorsLayer::new()
         .allow_origin(Any)

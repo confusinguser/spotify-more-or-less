@@ -1,11 +1,16 @@
 services:
   app:
-    image: ghcr.io/confusinguser/calendar-curator:latest
+    build: .
+    image: spotify-more-less:latest
     container_name: spotify-more-less
     ports:
       - "3000:3000"
+      - "8000:8000"
     volumes:
-      - ./data/:/app/data
+      - ./data:/app/data
     environment:
-      - DATABASE_PATH=/app/data/calendars.json
+      - DATA_DIR=/app/data
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
     restart: unless-stopped
+

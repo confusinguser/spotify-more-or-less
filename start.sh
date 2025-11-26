@@ -1,8 +1,8 @@
 #!/bin/bash
 # Start the Rust backend in the background
 echo "Starting Spotify More Less backend..."
-export DATABASE_PATH=/app/data/calendars.json
-./calendar-curator &
+export DATA_DIR=/app/data
+./spotify-more-less &
 BACKEND_PID=$!
 
 # Start the Next.js frontend
@@ -16,3 +16,4 @@ FRONTEND_PID=$!
 
 # Wait for both processes
 wait $BACKEND_PID $FRONTEND_PID
+

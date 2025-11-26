@@ -76,7 +76,7 @@ const dramaticAnimations: Record<
   },
   somersault: {
     keyframes: {
-      x: [0, -100, -280, -4000],
+      x: [0, -100, -280, -400],
       y: [0, -100, -150, 0],
       rotateX: [0, 180, 360, 360],
       scale: [1, 1.1, 1.2, 1],
@@ -170,6 +170,7 @@ export function SongGame() {
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null)
   const [score, setScore] = useState(0)
   const [highScore, setHighScore] = useState(0)
+  const [lives, setLives] = useState(3)
   const [showLeftStreams, setShowLeftStreams] = useState(false)
   const [showRightStreams, setShowRightStreams] = useState(false)
   const [currentAnimation, setCurrentAnimation] = useState<AnimationType>("fling")
@@ -196,6 +197,7 @@ export function SongGame() {
         console.error("Error loading initial tracks:", err)
       }
     }
+
     loadInitialTracks()
   }, [])
 
@@ -236,8 +238,12 @@ export function SongGame() {
       }
 
       setTimeout(async () => {
-        if (correct) {
-          setScore((prev) => prev + 1)
+        if (correct || lives > 0) {
+          if (!correct) {
+            setLives(prev => prev - 1)
+          } else {
+            setScore((prev) => prev + 1)
+          }
           setGameState("transitioning")
 
           const nextAnimation = getRandomAnimation()
@@ -265,34 +271,35 @@ export function SongGame() {
             }, animDuration + 100)
           }
         } else {
-          setTimeout(async () => {
+          // Game over - reset everything
+          setGameState("transitioning")
+          setTimeout(() => {
             setHighScore((prev) => Math.max(prev, score))
             setScore(0)
-            setGameState("loading")
-
-            // Fetch two new random tracks
-            try {
-              const { data } = await fetchClient.GET("/tracks/random/two")
+            setLives(3)
+            setSelectedSide(null)
+            setIsCorrect(null)
+            setShowLeftStreams(false)
+            setShowRightStreams(false)
+            setIsTransitioning(false)
+            setHasTransitioned(false)
+            // Fetch two new tracks
+            fetchClient.GET("/tracks/random/two").then(({ data, error }) => {
               if (data) {
                 const song1 = trackInfoToSong(data.track1)
                 const song2 = trackInfoToSong(data.track2)
                 setLeftSong(song1)
                 setRightSong(song2)
-                setShowLeftStreams(false)
-                setShowRightStreams(false)
-                setSelectedSide(null)
-                setIsCorrect(null)
-                setHasTransitioned(false)
                 setGameState("playing")
+              } else {
+                console.error("Failed to load tracks: " + error)
               }
-            } catch (err) {
-              console.error("Error resetting game:", err)
-            }
+            })
           }, 1000)
         }
       }, 3000)
     },
-    [gameState, leftSong, rightSong, score],
+    [gameState, leftSong, rightSong, lives, score],
   )
 
   const transitionAnimation = dramaticAnimations[currentAnimation]
@@ -300,7 +307,7 @@ export function SongGame() {
   if (gameState === "loading" || !leftSong || !rightSong) {
     return (
       <>
-        <FloatingElements />
+        {/*<FloatingElements/>*/}
         <div className="w-full max-w-5xl relative z-10 flex items-center justify-center min-h-[500px]">
           <div className="text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary mx-auto mb-4"></div>
@@ -313,7 +320,7 @@ export function SongGame() {
 
   return (
     <>
-      <FloatingElements />
+      {/*<FloatingElements/>*/}
 
       <div className="w-full max-w-5xl relative z-10">
         {/* Header */}
@@ -327,6 +334,26 @@ export function SongGame() {
             </div>
             <div className="text-muted-foreground">
               High Score: <span className="text-accent font-bold text-xl">{highScore}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              {[...Array(3)].map((_, i) => (
+                <motion.span
+                  key={i}
+                  className={`text-2xl ${i < lives ? "text-red-500" : "text-muted-foreground/30"}`}
+                  animate={
+                    i === lives && lives < 3
+                      ? {
+                          scale: [1, 1.5, 0],
+                          opacity: [1, 1, 0],
+                          rotate: [0, 0, 90],
+                        }
+                      : {}
+                  }
+                  transition={{ duration: 0.5 }}
+                >
+                  {i < lives ? "❤️" : "🖤"}
+                </motion.span>
+              ))}
             </div>
           </div>
         </div>
@@ -375,7 +402,8 @@ export function SongGame() {
               >
                 <SongCard
                   song={transitioningSong}
-                  onClick={() => {}}
+                  onClick={() => {
+                  }}
                   disabled={true}
                   showStreams={false}
                   isSelected={false}
@@ -393,7 +421,8 @@ export function SongGame() {
               >
                 <SongCard
                   song={upcomingSong}
-                  onClick={() => {}}
+                  onClick={() => {
+                  }}
                   disabled={true}
                   showStreams={false}
                   isSelected={false}
