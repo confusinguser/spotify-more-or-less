@@ -4,6 +4,29 @@ import { useState, useCallback, useEffect } from "react"
 import { SongCard } from "./song-card"
 import { motion } from "framer-motion"
 import { fetchClient, TrackInfo } from "@/lib/api"
+import { components } from "@/lib/schema"
+import { Song } from "@/lib/types"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+
+type TrackInfo = components["schemas"]["TrackInfo"]
+
+function trackInfoToSong(track: TrackInfo): Song {
+  return {
+    id: track.spotify_url || Math.random().toString(),
+    title: track.title,
+    artist: track.artist,
+    streams: track.times_played,
+    albumArt: track.album_image_url || "/placeholder-album.jpg",
+    spotify_url: track.spotify_url,
+    preview_url: track.preview_url || undefined,
+  }
+}
 
 type AnimationType = "fling" | "flip" | "spiral" | "bounce" | "arc" | "somersault"
 
@@ -75,6 +98,40 @@ function getRandomAnimation(): AnimationType {
   return animationTypes[Math.floor(Math.random() * animationTypes.length)]
 }
 
+// Alliteration map: letter -> [adjective, noun]
+const ALLITERATIONS: Record<string, [string, string]> = {
+  A: ["Audacious", "Anthems"],
+  B: ["Bangin'", "Beats"],
+  C: ["Chaotic", "Choruses"],
+  D: ["Dramatic", "Drops"],
+  E: ["Easy", "Echos"],
+  F: ["Frantic", "Frequencies"],
+  G: ["Groovy", "Grooves"],
+  H: ["Hypnotic", "Harmonies"],
+  I: ["Insane", "Interludes"],
+  J: ["Jazzy", "Jams"],
+  K: ["Kinetic", "Keys"],
+  L: ["Loud", "Lyrics"],
+  M: ["Musical", "Machinations"],
+  N: ["Nostalgic", "Notes"],
+  O: ["Outrageous", "Overtones"],
+  P: ["Pulsating", "Playlists"],
+  Q: ["Quirky", "Quartets"],
+  R: ["Raucous", "Rhythms"],
+  S: ["Sonic", "Sonnets"],
+  T: ["Thunderous", "Tracks"],
+  U: ["Unhinged", "Undertones"],
+  V: ["Vibrant", "Vibes"],
+  W: ["Wild", "Waves"],
+  X: ["Xtra", "Xperiences"],
+  Y: ["Yearning", "Yells"],
+  Z: ["Zany", "Zones"],
+}
+
+function getAlliteration(name: string): [string, string] {
+  const letter = name.trim()[0]?.toUpperCase() ?? "M"
+  return ALLITERATIONS[letter] ?? ["Musical", "Machinations"]
+
 // Prefetch image using link preload that works with Next.js image optimization
 function prefetchImage(url: string) {
   const link = document.createElement('link')
@@ -133,16 +190,48 @@ export function SongGame() {
   const [transitioningSong, setTransitioningSong] = useState<TrackInfo | null>(null)
   const [upcomingSong, setUpcomingSong] = useState<TrackInfo | null>(null)
   const [hasTransitioned, setHasTransitioned] = useState(false)
+  const [users, setUsers] = useState<string[]>([])
+  const [selectedUser, setSelectedUser] = useState<string | null>(null)
+  const [resetCount, setResetCount] = useState(0)
 
-  // Fetch two random tracks on mount
+  // Fetch users on mount
   useEffect(() => {
+    async function loadUsers() {
+      try {
+        const { data } = await fetchClient.GET("/users")
+        if (data && data.length > 0) {
+          setUsers(data)
+          setSelectedUser(data[0])
+        }
+      } catch (err) {
+        console.error("Error loading users:", err)
+      }
+    }
+    loadUsers()
+  }, [])
+
+  // Fetch two random tracks when selectedUser changes
+  useEffect(() => {
+    if (!selectedUser) return
+    let cancelled = false
     async function loadInitialTracks() {
       try {
-        const { data, error } = await fetchClient.GET("/tracks/random/two")
+        const { data, error } = await fetchClient.GET("/tracks/random/two", {
+          params: { query: { user: selectedUser! } },
+        })
+        if (cancelled) return
         if (data) {
           setLeftSong(data.track1)
           setRightSong(data.track2)
           setGameState("playing")
+          setScore(0)
+          setLives(3)
+          setShowLeftStreams(false)
+          setShowRightStreams(false)
+          setSelectedSide(null)
+          setIsCorrect(null)
+          setIsTransitioning(false)
+          setHasTransitioned(false)
         } else {
           console.error("Failed to load tracks: " + error)
         }
@@ -150,14 +239,16 @@ export function SongGame() {
         console.error("Error loading initial tracks:", err)
       }
     }
-
     loadInitialTracks()
-  }, [])
+    return () => { cancelled = true }
+  }, [selectedUser])
 
   // Function to fetch a new random track
-  const fetchNewTrack = async (): Promise<TrackInfo | null> => {
+  const fetchNewTrack = useCallback(async (): Promise<TrackInfo | null> => {
     try {
-      const { data } = await fetchClient.GET("/tracks/random")
+      const { data } = await fetchClient.GET("/tracks/random", {
+        params: { query: { user: selectedUser ?? undefined } },
+      })
       if (data) {
         return data
       } else {
@@ -168,7 +259,7 @@ export function SongGame() {
       console.error("Error fetching new track:", err)
       return null
     }
-  }
+  }, [selectedUser])
 
   const handleSelect = useCallback(
     async (side: "left" | "right") => {
@@ -252,18 +343,20 @@ export function SongGame() {
           // Game over - reset everything
           setGameState("transitioning")
 
-          const twoTracksResult = await newTwoSongsPromise
 
           setTimeout(() => {
             setHighScore((prev) => Math.max(prev, score))
             setScore(0)
             setLives(3)
+            setResetCount((prev) => prev + 1)
             setSelectedSide(null)
             setIsCorrect(null)
             setShowLeftStreams(false)
             setShowRightStreams(false)
             setIsTransitioning(false)
             setHasTransitioned(false)
+
+            const twoTracksResult = await newTwoSongsPromise
 
             // Use already fetched tracks
             if (twoTracksResult?.data) {
@@ -277,7 +370,7 @@ export function SongGame() {
         }
       }, 3000)
     },
-    [gameState, leftSong, rightSong, lives, score],
+    [gameState, leftSong, rightSong, lives, score, selectedUser, fetchNewTrack],
   )
 
   const transitionAnimation = dramaticAnimations[currentAnimation]
@@ -285,7 +378,6 @@ export function SongGame() {
   if (gameState === "loading" || !leftSong || !rightSong) {
     return (
       <>
-        {/*<FloatingElements/>*/}
         <div className="w-full max-w-5xl relative z-10 flex items-center justify-center min-h-[500px]">
           <div className="text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary mx-auto mb-4"></div>
@@ -296,15 +388,31 @@ export function SongGame() {
     )
   }
 
+  const [adj, noun] = getAlliteration(selectedUser ?? "M")
+
   return (
     <>
-      <FloatingElements/>
-
       <div className="w-full max-w-5xl relative z-10">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-2 text-balance">
-            Mostafa&#39;s Musical Machinations
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-2 text-balance flex flex-wrap items-center justify-center gap-x-3">
+            {users.length > 1 ? (
+              <Select value={selectedUser ?? ""} onValueChange={(v) => setSelectedUser(v)}>
+                <SelectTrigger className="inline-flex w-auto text-4xl md:text-5xl font-bold border-0 border-b-2 border-primary rounded-none bg-transparent px-1 h-auto focus:ring-0 cursor-pointer">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {users.map((u) => (
+                    <SelectItem key={u} value={u}>{u}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <span>{selectedUser ?? "..."}</span>
+            )}
+            <span>&#39;s</span>
+            <span>{adj}</span>
+            <span>{noun}</span>
           </h1>
           <div className="flex justify-center gap-8 mt-4">
             <div className="text-muted-foreground">
@@ -317,7 +425,7 @@ export function SongGame() {
             <div className="flex items-center gap-1" key={lives===3 ? "l": "k"}>
               {[...Array(3)].map((_, i) => (
                 <motion.span
-                  key={i}
+                  key={`${resetCount}-${i}`}
                   className={`text-2xl ${i < lives ? "text-red-500" : "text-muted-foreground/30"}`}
                   animate={
                     i === lives && lives < 3
@@ -381,8 +489,7 @@ export function SongGame() {
               >
                 <SongCard
                   song={transitioningSong}
-                  onClick={() => {
-                  }}
+                  onClick={() => {}}
                   disabled={true}
                   showStreams={false}
                   isSelected={false}
@@ -400,8 +507,7 @@ export function SongGame() {
               >
                 <SongCard
                   song={upcomingSong}
-                  onClick={() => {
-                  }}
+                  onClick={() => {}}
                   disabled={true}
                   showStreams={false}
                   isSelected={false}

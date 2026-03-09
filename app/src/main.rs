@@ -1,24 +1,23 @@
 use crate::api::routes;
+use crate::config::DataSourceConfig;
+use crate::storage::{Storage, UserStorages};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{RwLock};
+use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
-use crate::storage::Storage;
-use crate::config::DataSourceConfig;
 
 mod api;
 mod config;
 mod extended_history;
-mod storage;
 mod spotify;
+mod storage;
 mod types;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    // Load storage based on configuration from environment variables
-    // Priority: EXTENDED_HISTORY_PATHS > EXTENDED_HISTORY_PATH > DATA_PATH > default
     let data_source = DataSourceConfig::from_env();
-    
+
     println!("Loading data from: {:?}", data_source);
 
     let client_id = std::env::var("SPOTIFY_CLIENT_ID").unwrap_or_default();
@@ -36,10 +35,37 @@ async fn main() -> std::io::Result<()> {
 
     let storage = data_source.load_storage(10)
         .unwrap_or_else(|e| {
+
+    // Try multi-user mode first (DATA_DIR with subdirectories)
+    let user_storages: UserStorages = if let Ok(users) = data_source.load_multi_user_storages(10) {
+        if !users.is_empty() {
+            println!("Multi-user mode: loaded {} user(s)", users.len());
+            let map: HashMap<String, Arc<RwLock<Storage>>> = users
+                .into_iter()
+                .map(|(k, v)| (k, Arc::new(RwLock::new(v))))
+                .collect();
+            Arc::new(RwLock::new(map))
+        } else {
+            // Fall back to single-user mode with a default user name
+            println!("No user subdirectories found; loading as single-user");
+            let storage = data_source.load_storage(10).unwrap_or_else(|e| {
+                eprintln!("Failed to load data: {}. Using empty data instead.", e);
+                Storage::empty()
+            });
+            let mut map = HashMap::new();
+            map.insert("default".to_string(), Arc::new(RwLock::new(storage)));
+            Arc::new(RwLock::new(map))
+        }
+    } else {
+        // load_multi_user_storages failed (e.g. path is a file) – single-user fallback
+        let storage = data_source.load_storage(10).unwrap_or_else(|e| {
             eprintln!("Failed to load data: {}. Using empty data instead.", e);
             Storage::empty()
         });
-    let storage = Arc::new(RwLock::new(storage));
+        let mut map = HashMap::new();
+        map.insert("default".to_string(), Arc::new(RwLock::new(storage)));
+        Arc::new(RwLock::new(map))
+    };
 
     let socket_address: SocketAddr = "0.0.0.0:8000".parse().unwrap();
     let listener = tokio::net::TcpListener::bind(socket_address).await?;
@@ -57,7 +83,7 @@ async fn main() -> std::io::Result<()> {
 
     let app = axum::Router::new()
         .merge(routes::router())
-        .with_state((storage, spotify_client))
+        .with_state((user_storages, spotify_client))
         .layer(cors);
 
     println!("Spotify More Less backend starting on {}", socket_address);

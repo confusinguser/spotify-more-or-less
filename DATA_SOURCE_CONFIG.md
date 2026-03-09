@@ -2,6 +2,30 @@
 
 This application supports multiple data source formats for loading your Spotify listening history. You can easily switch between formats using environment variables or programmatic configuration.
 
+## Multi-User Mode (Recommended)
+
+Place each person's data files in a subdirectory named after them inside your data folder:
+
+```
+data/
+  Alice/
+    Streaming_History_Audio_2024.json
+  Bob/
+    Streaming_History_Audio_2024.json
+  Mostafa/
+    Streaming_History_Audio_2017-2024_0.json
+    Streaming_History_Audio_2024-2025_1.json
+```
+
+Set `DATA_DIR` to the parent folder:
+```bash
+export DATA_DIR=./data
+```
+
+The app will auto-detect each subdirectory as a separate user. The frontend will show a dropdown to switch between users, with the title updating to an alliterative phrase matching the first letter of the selected name.
+
+---
+
 ## Supported Formats
 
 ### 1. TracksJson Format (Default)

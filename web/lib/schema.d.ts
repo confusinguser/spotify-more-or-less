@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_users"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tracks/random": {
         parameters: {
             query?: never;
@@ -90,9 +106,32 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    get_random_track: {
+    get_users: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of available users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+        };
+    };
+    get_random_track: {
+        parameters: {
+            query?: {
+                /** @description The user whose data to query */
+                user?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -111,7 +150,10 @@ export interface operations {
     };
     get_two_random_tracks: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The user whose data to query */
+                user?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;

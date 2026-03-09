@@ -3,19 +3,27 @@ use crate::types::TrackInfo;
 use indexmap::IndexMap;
 use rand::random_range;
 use serde::{Deserialize, Serialize};
-use std::io;
+use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::io::{self, BufReader};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Shared multi-user storage: user name → their Storage
+pub type UserStorages = Arc<RwLock<HashMap<String, Arc<RwLock<Storage>>>>>;
+
+/// Number of tracks to keep pre-fetched and ready
+const PREFETCH_SIZE: usize = 2;
+
 pub struct Storage {
     pub tracks: TracksJson,
-    next_random: RwLock<Option<TrackInfo>>,
+    prefetch_queue: RwLock<VecDeque<TrackInfo>>,
 }
 
 impl Storage {
     pub fn from_file<P: AsRef<Path>>(data_path: P, min_streams: u32) -> io::Result<Self> {
-        let f = std::fs::File::open(data_path)?;
+        let f = BufReader::new(std::fs::File::open(data_path)?);
         let tracks: TracksJson = serde_json::from_reader(f)?;
         let tracks = TracksJson::from_map(
             tracks
@@ -26,7 +34,7 @@ impl Storage {
         );
         Ok(Storage {
             tracks,
-            next_random: RwLock::new(None),
+            prefetch_queue: RwLock::new(VecDeque::new()),
         })
     }
 
@@ -34,7 +42,7 @@ impl Storage {
     pub fn from_tracks_json(tracks: TracksJson) -> Self {
         Storage {
             tracks,
-            next_random: RwLock::new(None),
+            prefetch_queue: RwLock::new(VecDeque::new()),
         }
     }
 
@@ -43,35 +51,66 @@ impl Storage {
             tracks: TracksJson {
                 map: IndexMap::new(),
             },
-            next_random: RwLock::new(None),
+            prefetch_queue: RwLock::new(VecDeque::new()),
         }
     }
 
-    pub async fn random_track(&mut self, spotify_client: Arc<SpotifyClient>) -> Result<TrackInfo, SpotifyError> {
-        if let Some(track) = self.next_random.write().await.take() {
+    /// Pick a random PersonalTrackInfo from the track list (cheap, no I/O).
+    pub fn pick_random_personal(&self) -> Option<PersonalTrackInfo> {
+        if self.tracks.map.is_empty() {
+            return None;
+        }
+        let index = random_range(0..self.tracks.map.len());
+        self.tracks.map.get_index(index).map(|(_, t)| t.clone())
+    }
+
+    /// Pop one pre-fetched track from the queue, or None if the queue is empty.
+    pub async fn pop_prefetched(&self) -> Option<TrackInfo> {
+        self.prefetch_queue.write().await.pop_front()
+    }
+
+    /// Push a freshly-fetched track onto the pre-fetch queue.
+    pub async fn push_prefetched(&self, track: TrackInfo) {
+        self.prefetch_queue.write().await.push_back(track);
+    }
+
+    /// How many slots in the prefetch queue are currently unfilled.
+    pub async fn prefetch_deficit(&self) -> usize {
+        let len = self.prefetch_queue.read().await.len();
+        PREFETCH_SIZE.saturating_sub(len)
+    }
+
+    // Kept for backward compat with the single-track route
+    pub async fn random_track(
+        &mut self,
+        spotify_client: Arc<SpotifyClient>,
+    ) -> Result<TrackInfo, SpotifyError> {
+        if let Some(track) = self.prefetch_queue.write().await.pop_front() {
             return Ok(track);
         }
-        self.gen_next_random(spotify_client).await?;
-        Ok(self.next_random.write().await.take().unwrap())
+        // Queue empty — fetch synchronously
+        loop {
+            let Some(personal) = self.pick_random_personal() else {
+                continue;
+            };
+            return TrackInfo::from_personal_track_info(personal, &spotify_client).await;
+        }
     }
 
-    pub async fn gen_next_random(&mut self, spotify_client: Arc<SpotifyClient>) -> Result<(), SpotifyError> {
-        if self.next_random.read().await.is_some() {
+    // Kept for backward compat — fills one slot if not already full
+    pub async fn gen_next_random(
+        &mut self,
+        spotify_client: Arc<SpotifyClient>,
+    ) -> Result<(), SpotifyError> {
+        if self.prefetch_queue.read().await.len() >= PREFETCH_SIZE {
             return Ok(());
         }
         loop {
-            let index = random_range(0..self.tracks.map.len());
-            let Some(personal_track_info) = self.tracks.map.get_index(index).map(|(_, track)| {
-                let mut track = track.clone();
-                track.id = track.id.clone();
-                track
-            }) else {
-                continue
+            let Some(personal) = self.pick_random_personal() else {
+                continue;
             };
-            let track_info = TrackInfo::from_personal_track_info(personal_track_info, &spotify_client)
-                .await?;
-            let mut next_random = self.next_random.write().await;
-            *next_random = Some(track_info);
+            let track = TrackInfo::from_personal_track_info(personal, &spotify_client).await?;
+            self.prefetch_queue.write().await.push_back(track);
             break;
         }
         Ok(())
@@ -118,4 +157,3 @@ impl TracksJson {
         &self.map
     }
 }
-

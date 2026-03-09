@@ -1,7 +1,8 @@
 use crate::extended_history;
 use crate::storage::Storage;
+use rayon::prelude::*;
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 /// Configuration for data source format
@@ -15,6 +16,8 @@ pub enum DataSourceConfig {
     ExtendedHistoryMultiple { paths: Vec<PathBuf> },
     /// Auto-detect format from a directory
     AutoDetectDirectory { path: PathBuf },
+    /// Multi-user mode: each subdirectory is a user
+    MultiUser { base_path: PathBuf },
 }
 
 /// Detected file type
@@ -25,27 +28,52 @@ enum FileType {
     Unknown,
 }
 
-/// Detect the file type by examining its content
+/// Detect the file type by peeking at just the first 512 bytes
 fn detect_file_type<P: AsRef<Path>>(path: P) -> io::Result<FileType> {
-    let content = fs::read_to_string(path.as_ref())?;
+    let mut file = fs::File::open(path.as_ref())?;
+    let mut buf = [0u8; 512];
+    let n = file.read(&mut buf)?;
+    let snippet = std::str::from_utf8(&buf[..n]).unwrap_or("");
 
-    // Try to parse a small portion to detect structure
+    // Extended history is a JSON array starting with '['
+    // TracksJson is an object whose keys start with "spotify:track:"
+    let trimmed = snippet.trim_start();
+    if trimmed.starts_with('[') {
+        // Likely extended history — confirm by checking for known field names
+        if snippet.contains("\"ts\"")
+            || snippet.contains("\"ms_played\"")
+            || snippet.contains("\"spotify_track_uri\"")
+        {
+            return Ok(FileType::ExtendedHistory);
+        }
+    } else if trimmed.starts_with('{') {
+        if snippet.contains("spotify:track:") {
+            return Ok(FileType::TracksJson);
+        }
+    }
+
+    // Fall back: read the full file if the snippet wasn't conclusive
+    let content = {
+        use std::io::Seek;
+        file.seek(io::SeekFrom::Start(0))?;
+        let mut s = String::new();
+        file.read_to_string(&mut s)?;
+        s
+    };
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
         match value {
-            // TracksJson: Object with track URIs as keys
             serde_json::Value::Object(map) => {
                 if map.keys().any(|k| k.starts_with("spotify:track:")) {
                     return Ok(FileType::TracksJson);
                 }
             }
-            // ExtendedHistory: Array of entries
             serde_json::Value::Array(arr) => {
                 if !arr.is_empty() {
                     if let Some(obj) = arr[0].as_object() {
-                        // Check for extended history signature fields
                         if obj.contains_key("ts")
                             && obj.contains_key("ms_played")
-                            && (obj.contains_key("spotify_track_uri") || obj.contains_key("master_metadata_track_name"))
+                            && (obj.contains_key("spotify_track_uri")
+                                || obj.contains_key("master_metadata_track_name"))
                         {
                             return Ok(FileType::ExtendedHistory);
                         }
@@ -94,24 +122,38 @@ impl DataSourceConfig {
     /// Load Storage based on the configuration
     pub fn load_storage(&self, min_streams: u32) -> io::Result<Storage> {
         match self {
-            DataSourceConfig::TracksJson { path } => {
-                Storage::from_file(path, min_streams)
-            }
+            DataSourceConfig::TracksJson { path } => Storage::from_file(path, min_streams),
             DataSourceConfig::ExtendedHistorySingle { path } => {
                 extended_history::load_storage_from_extended_history(path, min_streams)
             }
             DataSourceConfig::ExtendedHistoryMultiple { paths } => {
                 extended_history::load_storage_from_extended_history_files(paths, min_streams)
             }
+            DataSourceConfig::MultiUser { base_path } => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "MultiUser mode requires load_multi_user_storages(), not load_storage(). base_path={:?}",
+                    base_path
+                ),
+            )),
             DataSourceConfig::AutoDetectDirectory { path } => {
                 let (tracks_json_files, extended_history_files) = scan_directory(path)?;
 
                 // Priority: Use extended history if available (more detailed)
                 if !extended_history_files.is_empty() {
-                    println!("Auto-detected {} extended history file(s)", extended_history_files.len());
-                    extended_history::load_storage_from_extended_history_files(&extended_history_files, min_streams)
+                    println!(
+                        "Auto-detected {} extended history file(s)",
+                        extended_history_files.len()
+                    );
+                    extended_history::load_storage_from_extended_history_files(
+                        &extended_history_files,
+                        min_streams,
+                    )
                 } else if !tracks_json_files.is_empty() {
-                    println!("Auto-detected {} tracks.json file(s)", tracks_json_files.len());
+                    println!(
+                        "Auto-detected {} tracks.json file(s)",
+                        tracks_json_files.len()
+                    );
                     if tracks_json_files.len() == 1 {
                         Storage::from_file(&tracks_json_files[0], min_streams)
                     } else {
@@ -130,11 +172,68 @@ impl DataSourceConfig {
         }
     }
 
+    /// Load storages for all users found in subdirectories.
+    /// Returns a map from user name -> Storage.
+    pub fn load_multi_user_storages(
+        &self,
+        min_streams: u32,
+    ) -> io::Result<std::collections::HashMap<String, Storage>> {
+        let base_path = match self {
+            DataSourceConfig::MultiUser { base_path } => base_path,
+            DataSourceConfig::AutoDetectDirectory { path } => path,
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "load_multi_user_storages() requires MultiUser or AutoDetectDirectory config",
+                ));
+            }
+        };
+
+        // Collect subdirectory entries first (read_dir is not Send-safe across threads)
+        let entries: Vec<(String, PathBuf)> = fs::read_dir(base_path)?
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let path = e.path();
+                if path.is_dir() {
+                    let name = path.file_name()?.to_str()?.to_string();
+                    if !name.is_empty() {
+                        Some((name, path))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Load all users in parallel using rayon
+        let result: std::collections::HashMap<String, Storage> = entries
+            .into_par_iter()
+            .filter_map(|(user_name, path)| {
+                let user_config = DataSourceConfig::AutoDetectDirectory { path };
+                match user_config.load_storage(min_streams) {
+                    Ok(storage) => {
+                        println!("Loaded data for user: {}", user_name);
+                        Some((user_name, storage))
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: failed to load data for user '{}': {}",
+                            user_name, e
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        Ok(result)
+    }
+
     /// Create configuration from a directory path (auto-detect files)
     pub fn from_directory<P: Into<PathBuf>>(path: P) -> Self {
-        DataSourceConfig::AutoDetectDirectory {
-            path: path.into(),
-        }
+        DataSourceConfig::AutoDetectDirectory { path: path.into() }
     }
 
     /// Create configuration from environment variable
@@ -179,33 +278,24 @@ impl DataSourceBuilder {
 
     /// Auto-detect files in a directory
     pub fn with_directory<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.config = Some(DataSourceConfig::AutoDetectDirectory {
-            path: path.into(),
-        });
+        self.config = Some(DataSourceConfig::AutoDetectDirectory { path: path.into() });
         self
     }
 
     /// Use tracks.json format
     pub fn with_tracks_json<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.config = Some(DataSourceConfig::TracksJson {
-            path: path.into(),
-        });
+        self.config = Some(DataSourceConfig::TracksJson { path: path.into() });
         self
     }
 
     /// Use extended history format (single file)
     pub fn with_extended_history<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        self.config = Some(DataSourceConfig::ExtendedHistorySingle {
-            path: path.into(),
-        });
+        self.config = Some(DataSourceConfig::ExtendedHistorySingle { path: path.into() });
         self
     }
 
     /// Use extended history format (multiple files)
-    pub fn with_extended_history_files<P: Into<PathBuf>>(
-        mut self,
-        paths: Vec<P>,
-    ) -> Self {
+    pub fn with_extended_history_files<P: Into<PathBuf>>(mut self, paths: Vec<P>) -> Self {
         self.config = Some(DataSourceConfig::ExtendedHistoryMultiple {
             paths: paths.into_iter().map(|p| p.into()).collect(),
         });
@@ -236,9 +326,7 @@ mod tests {
 
     #[test]
     fn test_builder_directory() {
-        let config = DataSourceBuilder::new()
-            .with_directory("./data")
-            .build();
+        let config = DataSourceBuilder::new().with_directory("./data").build();
 
         match config {
             DataSourceConfig::AutoDetectDirectory { path } => {
@@ -305,4 +393,3 @@ mod tests {
         }
     }
 }
-

@@ -1,8 +1,9 @@
 use crate::storage::{PersonalTrackInfo, Storage, TracksJson};
 use indexmap::IndexMap;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, BufReader};
 use std::path::Path;
 
 /// A single streaming history entry from Spotify's extended streaming history export
@@ -211,10 +212,8 @@ pub fn extended_history_to_storage(history: ExtendedHistory, min_streams: u32) -
 }
 
 /// Load extended history from a single JSON file
-pub fn load_extended_history_from_file<P: AsRef<Path>>(
-    path: P,
-) -> io::Result<ExtendedHistory> {
-    let file = std::fs::File::open(path)?;
+pub fn load_extended_history_from_file<P: AsRef<Path>>(path: P) -> io::Result<ExtendedHistory> {
+    let file = BufReader::new(std::fs::File::open(path)?);
     let history: ExtendedHistory = serde_json::from_reader(file)?;
     Ok(history)
 }
@@ -223,23 +222,27 @@ pub fn load_extended_history_from_file<P: AsRef<Path>>(
 ///
 /// Each file should contain a complete JSON array of extended history entries.
 /// All entries from all files will be combined into a single vector.
-pub fn load_extended_history_from_files<P: AsRef<Path>>(
+pub fn load_extended_history_from_files<P: AsRef<Path> + Sync>(
     paths: &[P],
 ) -> io::Result<ExtendedHistory> {
-    let mut combined_history = Vec::new();
+    // Parse files in parallel, collecting results
+    let results: Vec<io::Result<ExtendedHistory>> = paths
+        .par_iter()
+        .map(|p| load_extended_history_from_file(p))
+        .collect();
 
-    for path in paths {
-        let mut file_history = load_extended_history_from_file(path)?;
-        combined_history.append(&mut file_history);
+    // Merge, propagating the first error
+    let mut combined = Vec::new();
+    for r in results {
+        combined.extend(r?);
     }
-
-    Ok(combined_history)
+    Ok(combined)
 }
 
 /// Load extended history from a single JSON file and convert to Storage
 pub fn load_storage_from_extended_history<P: AsRef<Path>>(
     path: P,
-    min_streams:u32
+    min_streams: u32,
 ) -> io::Result<Storage> {
     let history = load_extended_history_from_file(path)?;
     Ok(extended_history_to_storage(history, min_streams))
@@ -249,7 +252,7 @@ pub fn load_storage_from_extended_history<P: AsRef<Path>>(
 ///
 /// This function merges all extended history files and aggregates the statistics
 /// across all of them into a single Storage object.
-pub fn load_storage_from_extended_history_files<P: AsRef<Path>>(
+pub fn load_storage_from_extended_history_files<P: AsRef<Path> + Sync>(
     paths: &[P],
     min_streams: u32,
 ) -> io::Result<Storage> {
@@ -357,4 +360,3 @@ mod tests {
         assert!(music_entry.is_music_track());
     }
 }
-

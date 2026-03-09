@@ -46,14 +46,17 @@ impl TrackInfo {
             ms_played: personal.ms_played,
             time_distribution: personal.time_distribution,
             popularity: personal.popularity,
-            spotify_url: spotify_track.as_ref()
+            spotify_url: spotify_track
+                .as_ref()
                 .ok()
                 .map(|track| track.external_urls.spotify.clone()),
-            album_image_url: spotify_track.as_ref()
+            album_image_url: spotify_track
+                .as_ref()
                 .ok()
                 .map(|track| track.album.images.first().map(|img| img.url.clone()))
                 .flatten(),
-            preview_url: spotify_track.as_ref()
+            preview_url: spotify_track
+                .as_ref()
                 .ok()
                 .map(|track| track.preview_url.clone())
                 .flatten(),
