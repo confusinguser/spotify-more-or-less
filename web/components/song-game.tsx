@@ -4,7 +4,6 @@ import { useState, useCallback, useEffect } from "react"
 import { SongCard } from "./song-card"
 import { motion } from "framer-motion"
 import { fetchClient, TrackInfo } from "@/lib/api"
-import { components } from "@/lib/schema"
 import { Song } from "@/lib/types"
 import {
   Select,
@@ -14,8 +13,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-type TrackInfo = components["schemas"]["TrackInfo"]
-
 function trackInfoToSong(track: TrackInfo): Song {
   return {
     id: track.spotify_url || Math.random().toString(),
@@ -23,7 +20,7 @@ function trackInfoToSong(track: TrackInfo): Song {
     artist: track.artist,
     streams: track.times_played,
     albumArt: track.album_image_url || "/placeholder-album.jpg",
-    spotify_url: track.spotify_url,
+    spotify_url: track.spotify_url || undefined,
     preview_url: track.preview_url || undefined,
   }
 }
@@ -131,6 +128,7 @@ const ALLITERATIONS: Record<string, [string, string]> = {
 function getAlliteration(name: string): [string, string] {
   const letter = name.trim()[0]?.toUpperCase() ?? "M"
   return ALLITERATIONS[letter] ?? ["Musical", "Machinations"]
+  }
 
 // Prefetch image using link preload that works with Next.js image optimization
 function prefetchImage(url: string) {
@@ -140,38 +138,6 @@ function prefetchImage(url: string) {
   link.href = url
   link.imageSrcset = `/_next/image?url=${encodeURIComponent(url)}&w=640&q=75 640w, /_next/image?url=${encodeURIComponent(url)}&w=750&q=75 750w`
   document.head.appendChild(link)
-}
-
-function FloatingElements() {
-  return (
-    <div className="fixed inset-0 overflow-hidden pointer-events-none">
-      {/* Musical note shapes */}
-      {[
-        { x: "15%", y: "35%", size: 20, duration: 15 },
-        { x: "80%", y: "30%", size: 25, duration: 17 },
-        { x: "60%", y: "85%", size: 18, duration: 14 },
-        { x: "30%", y: "65%", size: 22, duration: 16 },
-      ].map((note, i) => (
-        <motion.div
-          key={`note-${i}`}
-          className="absolute text-primary/10 text-4xl"
-          style={{ left: note.x, top: note.y, fontSize: note.size }}
-          animate={{
-            y: [0, -40, 0],
-            opacity: [1.0, 0.2, 1.0],
-            rotate: [0, 10, -10, 0],
-          }}
-          transition={{
-            duration: note.duration,
-            repeat: Number.POSITIVE_INFINITY,
-            ease: "easeInOut",
-          }}
-        >
-          ♪
-        </motion.div>
-      ))}
-    </div>
-  )
 }
 
 export function SongGame() {
@@ -287,7 +253,9 @@ export function SongGame() {
         })
       } else {
         // Game over - fetch two new tracks
-        newTwoSongsPromise = fetchClient.GET("/tracks/random/two").then((result) => {
+        newTwoSongsPromise = fetchClient.GET("/tracks/random/two", {
+          params: { query: { user: selectedUser ?? undefined } },
+        }).then((result) => {
           if (result.data?.track1.album_image_url) {
             prefetchImage(result.data.track1.album_image_url)
           }
@@ -344,7 +312,7 @@ export function SongGame() {
           setGameState("transitioning")
 
 
-          setTimeout(() => {
+          setTimeout(async () => {
             setHighScore((prev) => Math.max(prev, score))
             setScore(0)
             setLives(3)

@@ -4,22 +4,6 @@
  */
 
 export interface paths {
-    "/users": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_users"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/tracks/random": {
         parameters: {
             query?: never;
@@ -68,6 +52,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_users"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -106,34 +106,14 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    get_users: {
+    get_random_track: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of available users */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
+            path: {
+                /** @description The user whose data to query. Omit to use the first available user. */
+                user: string | null;
             };
-        };
-    };
-    get_random_track: {
-        parameters: {
-            query?: {
-                /** @description The user whose data to query */
-                user?: string;
-            };
-            header?: never;
-            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -150,12 +130,12 @@ export interface operations {
     };
     get_two_random_tracks: {
         parameters: {
-            query?: {
-                /** @description The user whose data to query */
-                user?: string;
-            };
+            query?: never;
             header?: never;
-            path?: never;
+            path: {
+                /** @description The user whose data to query. Omit to use the first available user. */
+                user: string | null;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -190,6 +170,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlbumImageResponse"];
+                };
+            };
+        };
+    };
+    get_users: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of available users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
                 };
             };
         };

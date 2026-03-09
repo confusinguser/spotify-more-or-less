@@ -28,13 +28,7 @@ async fn main() -> std::io::Result<()> {
     if client_secret.is_empty() {
         eprintln!("Warning: SPOTIFY_CLIENT_SECRET is not set. Spotify API requests may fail.");
     }
-    let spotify_client = Arc::new(spotify::SpotifyClient::new(
-        client_id,
-        client_secret,
-    ));
-
-    let storage = data_source.load_storage(10)
-        .unwrap_or_else(|e| {
+    let spotify_client = Arc::new(spotify::SpotifyClient::new(client_id, client_secret));
 
     // Try multi-user mode first (DATA_DIR with subdirectories)
     let user_storages: UserStorages = if let Ok(users) = data_source.load_multi_user_storages(10) {
