@@ -183,7 +183,7 @@ export function SongGame() {
     async function loadInitialTracks() {
       try {
         const { data, error } = await fetchClient.GET("/tracks/random/two", {
-          params: { path: { user: selectedUser! } },
+          params: { query: { user: selectedUser! } },
         })
         if (cancelled) return
         if (data) {
@@ -213,7 +213,7 @@ export function SongGame() {
   const fetchNewTrack = useCallback(async (): Promise<TrackInfo | null> => {
     try {
       const { data } = await fetchClient.GET("/tracks/random", {
-        params: { path: { user: selectedUser ?? null } },
+        params: { query: { user: selectedUser ?? undefined } },
       })
       if (data) {
         return data
@@ -254,7 +254,7 @@ export function SongGame() {
       } else {
         // Game over - fetch two new tracks
         newTwoSongsPromise = fetchClient.GET("/tracks/random/two", {
-          params: { path: { user: selectedUser ?? null } },
+          params: { query: { user: selectedUser ?? undefined } },
         }).then((result) => {
           if (result.data?.track1.album_image_url) {
             prefetchImage(result.data.track1.album_image_url)

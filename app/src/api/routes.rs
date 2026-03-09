@@ -27,6 +27,7 @@ pub(crate) fn router() -> axum::Router<(UserStorages, Arc<SpotifyClient>)> {
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct UserQuery {
     /// The user whose data to query. Omit to use the first available user.
     pub user: Option<String>,

@@ -108,12 +108,12 @@ export type $defs = Record<string, never>;
 export interface operations {
     get_random_track: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query?: {
                 /** @description The user whose data to query. Omit to use the first available user. */
-                user: string | null;
+                user?: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -130,12 +130,12 @@ export interface operations {
     };
     get_two_random_tracks: {
         parameters: {
-            query?: never;
-            header?: never;
-            path: {
+            query?: {
                 /** @description The user whose data to query. Omit to use the first available user. */
-                user: string | null;
+                user?: string;
             };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
